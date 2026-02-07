@@ -1,0 +1,6 @@
+{
+  "name": "codex-plan-reviewer",
+  "version": "0.1.0",
+  "description": "Persistent Codex CLI reviewer for Claude Code plan mode",
+  "hooks": "./hooks/hooks.json"
+}
