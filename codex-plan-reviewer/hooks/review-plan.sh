@@ -2,6 +2,9 @@
 # Codex Plan Reviewer Hook
 # PreToolUse hook on ExitPlanMode - sends plan to Codex for review
 #
+# Uses persistent sessions (codex exec resume) when CODEX_SESSION_ID is set,
+# falls back to stateless codex exec otherwise.
+#
 # Exit codes:
 # 0 = allow (approved, or graceful degradation on errors)
 # 2 = block with feedback (revisions needed)
@@ -12,22 +15,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 STATE_DIR="${PLUGIN_DIR}/state"
 HISTORY_FILE="${STATE_DIR}/review-history.md"
+ENV_FILE="${PLUGIN_DIR}/.env"
+REVIEW_PROMPT_FILE="${PLUGIN_DIR}/prompts/review.md"
 
 # --- Guard clauses ---
 
 # Bypass if env var set
 [[ "${SKIP_CODEX_REVIEW:-}" == "1" ]] && exit 0
 
-# Require jq
-if ! command -v jq &>/dev/null; then
-  echo "codex-plan-reviewer: jq not found, skipping review" >&2
-  exit 0
-fi
+# Require jq and codex (silent degradation — use init-session.sh to diagnose)
+command -v jq &>/dev/null || exit 0
+command -v codex &>/dev/null || exit 0
 
-# Require codex
-if ! command -v codex &>/dev/null; then
-  echo "codex-plan-reviewer: codex CLI not found, skipping review" >&2
-  exit 0
+# --- Load config ---
+
+CODEX_MODEL="${CODEX_MODEL:-gpt-5.3-codex}"
+CODEX_REASONING_EFFORT="${CODEX_REASONING_EFFORT:-xhigh}"
+CODEX_SESSION_ID="${CODEX_SESSION_ID:-}"
+
+if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck source=/dev/null
+  source "$ENV_FILE"
 fi
 
 # --- Read hook input ---
@@ -42,87 +50,65 @@ PROJECT_DIR=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 
 PLAN_FILE=$(ls -t ~/.claude/plans/*.md 2>/dev/null | head -1) || true
 if [[ -z "$PLAN_FILE" ]] || [[ ! -f "$PLAN_FILE" ]]; then
-  echo "codex-plan-reviewer: no plan file found, skipping review" >&2
   exit 0
 fi
 
 PLAN_CONTENT=$(cat "$PLAN_FILE")
-if [[ -z "$PLAN_CONTENT" ]]; then
-  echo "codex-plan-reviewer: plan file is empty, skipping review" >&2
-  exit 0
-fi
+[[ -z "$PLAN_CONTENT" ]] && exit 0
 
-# --- Build review history context ---
+# --- Build review prompt ---
 
-mkdir -p "$STATE_DIR"
-
-REVIEW_HISTORY=""
-if [[ -f "$HISTORY_FILE" ]]; then
-  # Include last 50 lines of history to stay within context limits
-  REVIEW_HISTORY=$(tail -50 "$HISTORY_FILE")
-fi
-
-# --- Build the prompt ---
-
-SYSTEM_PROMPT='You are a senior software architect reviewing an implementation plan created by another AI coding assistant (Claude Code).
-
-Evaluate:
-1. Will this plan achieve the stated goals?
-2. Are there missing edge cases or error handling gaps?
-3. Is the plan specific enough to implement without ambiguity?
-4. Does it account for testing and verification?
-
-Response format:
-- If acceptable: Start with "APPROVED" on its own line, then any minor notes
-- If needs work: Start with "REVISIONS_NEEDED" on its own line, then numbered specific issues that must be addressed
-
-Be concise. Focus on substantive issues, not style preferences.'
-
-FULL_PROMPT="${SYSTEM_PROMPT}
+if [[ -f "$REVIEW_PROMPT_FILE" ]]; then
+  REVIEW_TEMPLATE=$(cat "$REVIEW_PROMPT_FILE")
+  REVIEW_PROMPT="${REVIEW_TEMPLATE//\{\{PLAN_CONTENT\}\}/$PLAN_CONTENT}"
+else
+  # Fallback if prompt file is missing
+  REVIEW_PROMPT="Review the following implementation plan:
 
 ---
-
-PROJECT DIRECTORY: ${PROJECT_DIR}"
-
-if [[ -n "$REVIEW_HISTORY" ]]; then
-  FULL_PROMPT="${FULL_PROMPT}
-
-PRIOR REVIEW HISTORY (for context on what was previously reviewed/flagged):
-${REVIEW_HISTORY}"
-fi
-
-FULL_PROMPT="${FULL_PROMPT}
-
----
-
-PLAN TO REVIEW:
-
 ${PLAN_CONTENT}
-
 ---
 
-Review this plan now. Start your response with APPROVED or REVISIONS_NEEDED."
+Start your response with APPROVED or REVISIONS_NEEDED."
+fi
 
 # --- Call Codex ---
 
 RESPONSE=""
-if RESPONSE=$(codex exec \
-  -s read-only \
-  -C "$PROJECT_DIR" \
-  "$FULL_PROMPT" 2>/dev/null); then
-  : # success
-else
-  echo "codex-plan-reviewer: codex exec failed (exit $?), allowing plan through" >&2
-  exit 0
+
+if [[ -n "$CODEX_SESSION_ID" ]]; then
+  # Persistent session: resume existing conversation
+  if RESPONSE=$(codex exec resume \
+    "$CODEX_SESSION_ID" \
+    "$REVIEW_PROMPT" \
+    -m "$CODEX_MODEL" \
+    -c "model_reasoning_effort=\"${CODEX_REASONING_EFFORT}\"" \
+    2>/dev/null); then
+    : # success
+  else
+    CODEX_SESSION_ID=""  # resume failed, fall back to stateless
+  fi
 fi
 
-if [[ -z "$RESPONSE" ]]; then
-  echo "codex-plan-reviewer: empty response from codex, allowing plan through" >&2
-  exit 0
+if [[ -z "$CODEX_SESSION_ID" ]] && [[ -z "$RESPONSE" ]]; then
+  # Stateless fallback: fresh codex exec
+  if RESPONSE=$(codex exec \
+    -s read-only \
+    -m "$CODEX_MODEL" \
+    -c "model_reasoning_effort=\"${CODEX_REASONING_EFFORT}\"" \
+    -C "$PROJECT_DIR" \
+    "$REVIEW_PROMPT" 2>/dev/null); then
+    : # success
+  else
+    exit 0
+  fi
 fi
+
+[[ -z "$RESPONSE" ]] && exit 0
 
 # --- Log to review history ---
 
+mkdir -p "$STATE_DIR"
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 PLAN_BASENAME=$(basename "$PLAN_FILE")
 
@@ -130,9 +116,9 @@ PLAN_BASENAME=$(basename "$PLAN_FILE")
   echo ""
   echo "## Review ${TIMESTAMP}"
   echo "Plan: ${PLAN_BASENAME}"
-  # Extract just the first line (verdict) and first ~10 lines of feedback
+  echo "Session: ${CODEX_SESSION_ID:-stateless}"
   echo "Response:"
-  echo "$RESPONSE" | head -15
+  echo "$RESPONSE" | head -50
 } >> "$HISTORY_FILE"
 
 # --- Parse verdict ---
@@ -140,12 +126,10 @@ PLAN_BASENAME=$(basename "$PLAN_FILE")
 FIRST_LINE=$(echo "$RESPONSE" | head -1)
 
 if echo "$FIRST_LINE" | grep -qi "APPROVED"; then
-  # Plan approved - allow ExitPlanMode
   exit 0
 fi
 
-# Default: treat as revisions needed (including REVISIONS_NEEDED or unparseable)
-# Build feedback message for Claude
+# Default: treat as revisions needed
 FEEDBACK="[CODEX PLAN REVIEW - REVISIONS NEEDED]
 
 ${RESPONSE}
@@ -153,7 +137,6 @@ ${RESPONSE}
 ---
 Revise the plan to address the issues above, then call ExitPlanMode again."
 
-# Output hook JSON with additionalContext and block ExitPlanMode
 jq -n \
   --arg ctx "$FEEDBACK" \
   '{

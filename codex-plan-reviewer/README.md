@@ -7,43 +7,68 @@ A Claude Code plugin that uses OpenAI's Codex CLI as an automated plan reviewer.
 - [Codex CLI](https://github.com/openai/codex) installed and authenticated
 - `jq`
 
-## Installation
+## Quick Start
 
 ```bash
+# 1. Install the plugin
 claude --plugin-dir ./codex-plan-reviewer
+
+# 2. Configure
+cp codex-plan-reviewer/.env.example codex-plan-reviewer/.env
+
+# 3. Initialize a persistent Codex session
+./codex-plan-reviewer/scripts/init-session.sh
+
+# 4. Use Claude Code in plan mode — reviews happen automatically
 ```
 
-## Usage
+## Configuration
 
-Use Claude Code in plan mode as normal. The hook fires automatically when Claude calls `ExitPlanMode`:
+Copy `.env.example` to `.env` and edit:
 
-```
-Claude: [writes plan, calls ExitPlanMode]
-         ──── "Codex reviewing plan..." (30-60s) ────
-Codex:  REVISIONS_NEEDED
-        1. No session expiry strategy
-        2. Missing CSRF protection
-Claude: [auto-revises plan, calls ExitPlanMode again]
-         ──── "Codex reviewing plan..." (30-60s) ────
-Codex:  APPROVED
-Claude: [exits plan mode, begins implementation]
+```env
+# Model for Codex to use
+CODEX_MODEL=gpt-5.3-codex
+
+# Reasoning effort: low, medium, high, xhigh
+CODEX_REASONING_EFFORT=xhigh
+
+# Session ID (written by init-session.sh — do not edit manually)
+CODEX_SESSION_ID=
 ```
 
 ### Bypass
 
-Skip Codex review for a session:
+Skip review for a session:
 
 ```bash
 SKIP_CODEX_REVIEW=1 claude --plugin-dir ./codex-plan-reviewer
 ```
 
-### Init / Reset
+## Session Management
 
-Check prerequisites and optionally clear review history:
+### Initialize a session
 
 ```bash
-./codex-plan-reviewer/scripts/init-reviewer.sh
+./codex-plan-reviewer/scripts/init-session.sh [project-dir]
 ```
+
+This creates a Codex session using `prompts/init.md`, which tells Codex to familiarize itself with the project. The session ID is saved to `.env`.
+
+Codex sessions persist in `~/.codex/sessions/` and survive process restarts. Each review call resumes the same session, so Codex remembers prior reviews and can track whether its feedback was addressed.
+
+### Reset
+
+Run `init-session.sh` again to create a fresh session. It will prompt before overwriting.
+
+## Prompt Customization
+
+Edit the prompt files in `prompts/` to change Codex's behavior:
+
+| File | Purpose |
+|------|---------|
+| `prompts/init.md` | Sent once when creating a session. Tells Codex its role and how to review. |
+| `prompts/review.md` | Sent for each review. `{{PLAN_CONTENT}}` is replaced with the plan. |
 
 ## How It Works
 
@@ -57,18 +82,19 @@ PreToolUse hook fires
 Read plan from ~/.claude/plans/
        │
        ▼
-Build prompt: system prompt + review history + plan
+Load prompts/review.md, substitute {{PLAN_CONTENT}}
        │
        ▼
-codex exec -s read-only -C <project>
+┌─ CODEX_SESSION_ID set? ──────────────────────────┐
+│ YES: codex exec resume <id> "prompt" -m <model>  │
+│ NO:  codex exec -s read-only -m <model> "prompt"  │
+└───────────────────────────────────────────────────┘
        │
        ├── APPROVED → exit 0 → plan mode exits
        │
        └── REVISIONS_NEEDED → exit 2 + additionalContext
               → Claude sees feedback, revises, retries
 ```
-
-The hook calls `codex exec -s read-only` (sandboxed, non-interactive). Codex evaluates the plan against four criteria: goal achievement, edge case coverage, implementation specificity, and test/verification coverage.
 
 ## Architecture
 
@@ -79,41 +105,28 @@ codex-plan-reviewer/
 ├── hooks/
 │   ├── hooks.json           # PreToolUse on ExitPlanMode (180s timeout)
 │   └── review-plan.sh       # Core hook script
+├── prompts/
+│   ├── init.md              # Session initialization prompt
+│   └── review.md            # Review prompt template
 ├── scripts/
-│   └── init-reviewer.sh     # Setup / reset tool
+│   └── init-session.sh      # Create/reset Codex session
 ├── state/
-│   ├── .gitkeep
-│   └── review-history.md    # Accumulated reviews (gitignored)
+│   └── review-history.md    # Audit log of all reviews (gitignored)
+├── .env.example             # Config template
+├── .env                     # Local config (gitignored)
 └── .gitignore
-```
-
-### Review History
-
-Each review is appended to `state/review-history.md`. This file persists across Claude Code sessions, giving Codex context about prior reviews (e.g., "you fixed issue 1 but not issue 2"). The last 50 lines are included in each prompt.
-
-```markdown
-## Review 2026-02-07T17:06:28Z
-Plan: test-plan.md
-Response:
-REVISIONS_NEEDED
-1. Missing rollback strategy...
-
-## Review 2026-02-07T17:07:10Z
-Plan: test-plan.md
-Response:
-APPROVED
-All issues addressed.
 ```
 
 ## Error Handling
 
-Failures are always permissive - a broken reviewer never blocks the user.
+Failures are always permissive — a broken reviewer never blocks the user.
 
 | Scenario | Behavior |
 |---|---|
 | `codex` not installed | Allow (warn on stderr) |
 | `jq` not installed | Allow |
 | Codex times out (>180s) | Allow |
+| Session resume fails | Falls back to stateless `codex exec` |
 | No plan file found | Allow |
 | Network failure | Allow |
 | Unparseable response | Allow |
