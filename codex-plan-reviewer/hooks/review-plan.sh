@@ -108,8 +108,6 @@ Review this plan now. Start your response with APPROVED or REVISIONS_NEEDED."
 RESPONSE=""
 if RESPONSE=$(codex exec \
   -s read-only \
-  -a never \
-  --no-alt-screen \
   -C "$PROJECT_DIR" \
   "$FULL_PROMPT" 2>/dev/null); then
   : # success
