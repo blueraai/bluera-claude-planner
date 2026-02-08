@@ -1,6 +1,8 @@
 {
   "name": "codex-plan-reviewer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Persistent Codex CLI reviewer for Claude Code plan mode",
+  "author": { "name": "chris" },
+  "keywords": ["plan-review", "codex", "quality-control"],
   "hooks": "./hooks/hooks.json"
 }
