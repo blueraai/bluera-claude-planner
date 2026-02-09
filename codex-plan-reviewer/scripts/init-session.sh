@@ -11,7 +11,6 @@ PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SETTINGS_FILE="${PLUGIN_DIR}/settings.json"
 STATE_DIR="${PLUGIN_DIR}/state"
 SESSION_FILE="${STATE_DIR}/session.json"
-INIT_PROMPT_FILE="${PLUGIN_DIR}/prompts/init.md"
 
 # --- Load settings ---
 
@@ -22,10 +21,12 @@ fi
 
 CODEX_MODEL="gpt-5.3-codex"
 CODEX_REASONING_EFFORT="xhigh"
+INIT_PROMPT=""
 
 if [[ -f "$SETTINGS_FILE" ]]; then
   CODEX_MODEL=$(jq -r '.model // "gpt-5.3-codex"' "$SETTINGS_FILE")
   CODEX_REASONING_EFFORT=$(jq -r '.reasoningEffort // "xhigh"' "$SETTINGS_FILE")
+  INIT_PROMPT=$(jq -r '.initPrompt // ""' "$SETTINGS_FILE")
 fi
 
 PROJECT_DIR="${1:-$(pwd)}"
@@ -48,14 +49,12 @@ echo "  reasoning: ${CODEX_REASONING_EFFORT}"
 echo "  project: ${PROJECT_DIR}"
 echo ""
 
-# --- Read init prompt ---
+# --- Validate init prompt ---
 
-if [[ ! -f "$INIT_PROMPT_FILE" ]]; then
-  echo "ERROR: ${INIT_PROMPT_FILE} not found" >&2
+if [[ -z "$INIT_PROMPT" ]]; then
+  echo "ERROR: initPrompt not found in settings.json" >&2
   exit 1
 fi
-
-INIT_PROMPT=$(cat "$INIT_PROMPT_FILE")
 
 # --- Show existing session ---
 

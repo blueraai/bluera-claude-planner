@@ -17,7 +17,6 @@ STATE_DIR="${PLUGIN_DIR}/state"
 HISTORY_FILE="${STATE_DIR}/review-history.md"
 SETTINGS_FILE="${PLUGIN_DIR}/settings.json"
 SESSION_FILE="${STATE_DIR}/session.json"
-REVIEW_PROMPT_FILE="${PLUGIN_DIR}/prompts/review.md"
 
 # --- Guard clauses ---
 
@@ -33,10 +32,16 @@ command -v codex &>/dev/null || exit 0
 CODEX_MODEL="gpt-5.3-codex"
 CODEX_REASONING_EFFORT="xhigh"
 CODEX_SESSION_ID=""
+REVIEW_TEMPLATE=""
 
 if [[ -f "$SETTINGS_FILE" ]]; then
+  # Check enabled flag
+  ENABLED=$(jq -r '.enabled // true' "$SETTINGS_FILE")
+  [[ "$ENABLED" == "false" ]] && exit 0
+
   CODEX_MODEL=$(jq -r '.model // "gpt-5.3-codex"' "$SETTINGS_FILE")
   CODEX_REASONING_EFFORT=$(jq -r '.reasoningEffort // "xhigh"' "$SETTINGS_FILE")
+  REVIEW_TEMPLATE=$(jq -r '.reviewPrompt // ""' "$SETTINGS_FILE")
 fi
 
 if [[ -f "$SESSION_FILE" ]]; then
@@ -64,19 +69,12 @@ PLAN_CONTENT=$(cat "$PLAN_FILE")
 
 # --- Build review prompt ---
 
-if [[ -f "$REVIEW_PROMPT_FILE" ]]; then
-  REVIEW_TEMPLATE=$(cat "$REVIEW_PROMPT_FILE")
-  REVIEW_PROMPT="${REVIEW_TEMPLATE//\{\{PLAN_CONTENT\}\}/$PLAN_CONTENT}"
-else
-  # Fallback if prompt file is missing
-  REVIEW_PROMPT="Review the following implementation plan:
-
----
-${PLAN_CONTENT}
----
-
-Start your response with APPROVED or REVISIONS_NEEDED."
+if [[ -z "$REVIEW_TEMPLATE" ]]; then
+  REVIEW_TEMPLATE="Review the following implementation plan:\n\n---\n{{PLAN_CONTENT}}\n---\n\nStart your response with APPROVED or REVISIONS_NEEDED."
 fi
+
+# Substitute plan content into template
+REVIEW_PROMPT="${REVIEW_TEMPLATE//\{\{PLAN_CONTENT\}\}/$PLAN_CONTENT}"
 
 # --- Call Codex ---
 
