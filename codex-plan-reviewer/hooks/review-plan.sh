@@ -36,7 +36,7 @@ REVIEW_TEMPLATE=""
 
 if [[ -f "$SETTINGS_FILE" ]]; then
   # Check enabled flag
-  ENABLED=$(jq -r '.enabled // true' "$SETTINGS_FILE")
+  ENABLED=$(jq -r '.enabled // false' "$SETTINGS_FILE")
   [[ "$ENABLED" == "false" ]] && exit 0
 
   CODEX_MODEL=$(jq -r '.model // "gpt-5.3-codex"' "$SETTINGS_FILE")
