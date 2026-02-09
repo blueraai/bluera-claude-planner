@@ -1,0 +1,59 @@
+name: Release
+
+# Creates GitHub release when a tag is pushed.
+#
+# Quality assumption: Tags are only created by Auto Release workflow AFTER
+# CI passes on main. This workflow trusts that guarantee and does not re-run
+# tests. See ci.yml and auto-release.yml for the full quality chain.
+#
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# Prevent parallel releases - queue instead of cancel
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            NOTES=$(git log --pretty=format:"- %s" $PREV_TAG..HEAD)
+          else
+            NOTES=$(git log --pretty=format:"- %s" -20)
+          fi
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: |
+            ## Changes
+            ${{ steps.notes.outputs.notes }}
+
+            ## Installation
+
+            ```bash
+            # Add marketplace (one-time)
+            /plugin marketplace add blueraai/bluera-marketplace
+
+            # Install plugin
+            /plugin install bluera-claude-planner@bluera
+            ```

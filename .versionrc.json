@@ -1,0 +1,21 @@
+{
+  "packageFiles": [
+    {
+      "filename": "package.json",
+      "type": "json"
+    }
+  ],
+  "bumpFiles": [
+    {
+      "filename": "package.json",
+      "type": "json"
+    },
+    {
+      "filename": "codex-plan-reviewer/.claude-plugin/plugin.json",
+      "type": "json"
+    }
+  ],
+  "tagPrefix": "v",
+  "commitAll": true,
+  "sign": false
+}

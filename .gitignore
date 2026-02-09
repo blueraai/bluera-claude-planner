@@ -1,6 +1,9 @@
 # multi-purpose ignored dir for development
 .ignore/
 
+# Dependencies
+node_modules/
+
 # Bluera plugins - shared config committed, local/state ignored
 .bluera/
 !.bluera/bluera-base/
