@@ -15,3 +15,6 @@ node_modules/
 !.bluera/bluera-knowledge/stores.config.json
 # Claude Code local files (not committed)
 *.local.md
+
+# direnv (may contain secrets)
+.envrc
