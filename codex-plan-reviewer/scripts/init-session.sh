@@ -1,6 +1,6 @@
 #!/bin/bash
 # Initialize a persistent Codex reviewer session
-# Creates a session with the init prompt and stores the session ID in .env
+# Creates a session with the init prompt and stores the session ID in state/session.json
 #
 # Usage: ./init-session.sh [project-dir]
 
@@ -8,27 +8,27 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-ENV_FILE="${PLUGIN_DIR}/.env"
+SETTINGS_FILE="${PLUGIN_DIR}/settings.json"
+STATE_DIR="${PLUGIN_DIR}/state"
+SESSION_FILE="${STATE_DIR}/session.json"
 INIT_PROMPT_FILE="${PLUGIN_DIR}/prompts/init.md"
 
-# --- Load .env ---
+# --- Load settings ---
 
-if [[ ! -f "$ENV_FILE" ]]; then
-  if [[ -f "${PLUGIN_DIR}/.env.example" ]]; then
-    cp "${PLUGIN_DIR}/.env.example" "$ENV_FILE"
-    echo "Created .env from .env.example"
-  else
-    echo "ERROR: No .env or .env.example found" >&2
-    exit 1
-  fi
+if ! command -v jq &>/dev/null; then
+  echo "ERROR: jq not found. Install: brew install jq" >&2
+  exit 1
 fi
 
-# shellcheck source=/dev/null
-source "$ENV_FILE"
+CODEX_MODEL="gpt-5.3-codex"
+CODEX_REASONING_EFFORT="xhigh"
+
+if [[ -f "$SETTINGS_FILE" ]]; then
+  CODEX_MODEL=$(jq -r '.model // "gpt-5.3-codex"' "$SETTINGS_FILE")
+  CODEX_REASONING_EFFORT=$(jq -r '.reasoningEffort // "xhigh"' "$SETTINGS_FILE")
+fi
 
 PROJECT_DIR="${1:-$(pwd)}"
-CODEX_MODEL="${CODEX_MODEL:-gpt-5.3-codex}"
-CODEX_REASONING_EFFORT="${CODEX_REASONING_EFFORT:-xhigh}"
 
 # --- Prerequisite checks ---
 
@@ -42,13 +42,7 @@ if ! command -v codex &>/dev/null; then
 fi
 echo "  codex: $(codex --version 2>/dev/null || echo 'installed')"
 
-if ! command -v jq &>/dev/null; then
-  echo "  ERROR: jq not found"
-  echo "  Install: brew install jq"
-  exit 1
-fi
 echo "  jq:    installed"
-
 echo "  model: ${CODEX_MODEL}"
 echo "  reasoning: ${CODEX_REASONING_EFFORT}"
 echo "  project: ${PROJECT_DIR}"
@@ -65,8 +59,13 @@ INIT_PROMPT=$(cat "$INIT_PROMPT_FILE")
 
 # --- Show existing session ---
 
-if [[ -n "${CODEX_SESSION_ID:-}" ]]; then
-  echo "  Existing session: ${CODEX_SESSION_ID}"
+EXISTING_SESSION=""
+if [[ -f "$SESSION_FILE" ]]; then
+  EXISTING_SESSION=$(jq -r '.sessionId // ""' "$SESSION_FILE")
+fi
+
+if [[ -n "$EXISTING_SESSION" ]]; then
+  echo "  Existing session: ${EXISTING_SESSION}"
   read -p "  Create new session? (overwrites existing) [y/N] " -n 1 -r
   echo ""
   if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -104,22 +103,20 @@ fi
 # Extract agent response
 AGENT_RESPONSE=$(echo "$JSON_OUTPUT" | jq -r 'select(.type=="item.completed" and .item.type=="agent_message") | .item.text' 2>/dev/null | head -5)
 
-# --- Write session ID to .env ---
+# --- Write session to state ---
 
-if grep -q '^CODEX_SESSION_ID=' "$ENV_FILE"; then
-  # Update existing line
-  if [[ "$(uname)" == "Darwin" ]]; then
-    sed -i '' "s/^CODEX_SESSION_ID=.*/CODEX_SESSION_ID=${THREAD_ID}/" "$ENV_FILE"
-  else
-    sed -i "s/^CODEX_SESSION_ID=.*/CODEX_SESSION_ID=${THREAD_ID}/" "$ENV_FILE"
-  fi
-else
-  echo "CODEX_SESSION_ID=${THREAD_ID}" >> "$ENV_FILE"
-fi
+mkdir -p "$STATE_DIR"
+TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+jq -n \
+  --arg sid "$THREAD_ID" \
+  --arg ts "$TIMESTAMP" \
+  --arg model "$CODEX_MODEL" \
+  '{sessionId: $sid, createdAt: $ts, model: $model}' > "$SESSION_FILE"
 
 echo ""
 echo "  Session ID: ${THREAD_ID}"
-echo "  Saved to:   ${ENV_FILE}"
+echo "  Saved to:   ${SESSION_FILE}"
 echo ""
 if [[ -n "$AGENT_RESPONSE" ]]; then
   echo "  Codex says: ${AGENT_RESPONSE}"

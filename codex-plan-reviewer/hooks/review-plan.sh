@@ -15,7 +15,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 STATE_DIR="${PLUGIN_DIR}/state"
 HISTORY_FILE="${STATE_DIR}/review-history.md"
-ENV_FILE="${PLUGIN_DIR}/.env"
+SETTINGS_FILE="${PLUGIN_DIR}/settings.json"
+SESSION_FILE="${STATE_DIR}/session.json"
 REVIEW_PROMPT_FILE="${PLUGIN_DIR}/prompts/review.md"
 
 # --- Guard clauses ---
@@ -27,15 +28,19 @@ REVIEW_PROMPT_FILE="${PLUGIN_DIR}/prompts/review.md"
 command -v jq &>/dev/null || exit 0
 command -v codex &>/dev/null || exit 0
 
-# --- Load config ---
+# --- Load settings ---
 
-CODEX_MODEL="${CODEX_MODEL:-gpt-5.3-codex}"
-CODEX_REASONING_EFFORT="${CODEX_REASONING_EFFORT:-xhigh}"
-CODEX_SESSION_ID="${CODEX_SESSION_ID:-}"
+CODEX_MODEL="gpt-5.3-codex"
+CODEX_REASONING_EFFORT="xhigh"
+CODEX_SESSION_ID=""
 
-if [[ -f "$ENV_FILE" ]]; then
-  # shellcheck source=/dev/null
-  source "$ENV_FILE"
+if [[ -f "$SETTINGS_FILE" ]]; then
+  CODEX_MODEL=$(jq -r '.model // "gpt-5.3-codex"' "$SETTINGS_FILE")
+  CODEX_REASONING_EFFORT=$(jq -r '.reasoningEffort // "xhigh"' "$SETTINGS_FILE")
+fi
+
+if [[ -f "$SESSION_FILE" ]]; then
+  CODEX_SESSION_ID=$(jq -r '.sessionId // ""' "$SESSION_FILE")
 fi
 
 # --- Read hook input ---

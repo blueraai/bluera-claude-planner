@@ -13,29 +13,27 @@ A Claude Code plugin that uses OpenAI's Codex CLI as an automated plan reviewer.
 # 1. Install the plugin
 claude --plugin-dir ./codex-plan-reviewer
 
-# 2. Configure
-cp codex-plan-reviewer/.env.example codex-plan-reviewer/.env
-
-# 3. Initialize a persistent Codex session
+# 2. Initialize a persistent Codex session
 ./codex-plan-reviewer/scripts/init-session.sh
 
-# 4. Use Claude Code in plan mode — reviews happen automatically
+# 3. Use Claude Code in plan mode — reviews happen automatically
 ```
 
-## Configuration
+## Settings
 
-Copy `.env.example` to `.env` and edit:
+Edit `settings.json` to configure:
 
-```env
-# Model for Codex to use
-CODEX_MODEL=gpt-5.3-codex
-
-# Reasoning effort: low, medium, high, xhigh
-CODEX_REASONING_EFFORT=xhigh
-
-# Session ID (written by init-session.sh — do not edit manually)
-CODEX_SESSION_ID=
+```json
+{
+  "model": "gpt-5.3-codex",
+  "reasoningEffort": "xhigh"
+}
 ```
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `model` | `gpt-5.3-codex` | Model for Codex to use |
+| `reasoningEffort` | `xhigh` | Reasoning effort: `low`, `medium`, `high`, `xhigh` |
 
 ### Bypass
 
@@ -53,7 +51,7 @@ SKIP_CODEX_REVIEW=1 claude --plugin-dir ./codex-plan-reviewer
 ./codex-plan-reviewer/scripts/init-session.sh [project-dir]
 ```
 
-This creates a Codex session using `prompts/init.md`, which tells Codex to familiarize itself with the project. The session ID is saved to `.env`.
+This creates a Codex session using `prompts/init.md`, which tells Codex to familiarize itself with the project. The session ID is saved to `state/session.json`.
 
 Codex sessions persist in `~/.codex/sessions/` and survive process restarts. Each review call resumes the same session, so Codex remembers prior reviews and can track whether its feedback was addressed.
 
@@ -111,9 +109,9 @@ codex-plan-reviewer/
 ├── scripts/
 │   └── init-session.sh      # Create/reset Codex session
 ├── state/
+│   ├── session.json         # Session ID and metadata (gitignored)
 │   └── review-history.md    # Audit log of all reviews (gitignored)
-├── .env.example             # Config template
-├── .env                     # Local config (gitignored)
+├── settings.json            # User-editable configuration
 └── .gitignore
 ```
 
