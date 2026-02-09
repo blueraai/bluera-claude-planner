@@ -48,6 +48,7 @@ PROJECT_DIR=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 
 # --- Find the plan file ---
 
+# shellcheck disable=SC2012
 PLAN_FILE=$(ls -t ~/.claude/plans/*.md 2>/dev/null | head -1) || true
 if [[ -z "$PLAN_FILE" ]] || [[ ! -f "$PLAN_FILE" ]]; then
   exit 0
