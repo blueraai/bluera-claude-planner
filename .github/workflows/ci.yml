@@ -27,7 +27,7 @@ jobs:
 
       - name: Run shellcheck on scripts
         run: |
-          find codex-plan-reviewer -name "*.sh" -type f -exec shellcheck -x -e SC1091 {} +
+          find hooks scripts -name "*.sh" -type f -exec shellcheck -x -e SC1091 {} +
 
   syntax-check:
     runs-on: ubuntu-latest
@@ -37,7 +37,7 @@ jobs:
       - name: Validate bash syntax
         run: |
           set -e
-          for script in $(find codex-plan-reviewer -name "*.sh" -type f); do
+          for script in $(find hooks scripts -name "*.sh" -type f); do
             echo "Checking $script..."
             bash -n "$script" || exit 1
           done

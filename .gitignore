@@ -18,3 +18,7 @@ node_modules/
 
 # direnv (may contain secrets)
 .envrc
+
+# Plugin runtime state
+state/session.json
+state/review-history.md

@@ -11,7 +11,7 @@
       "type": "json"
     },
     {
-      "filename": "codex-plan-reviewer/.claude-plugin/plugin.json",
+      "filename": ".claude-plugin/plugin.json",
       "type": "json"
     }
   ],

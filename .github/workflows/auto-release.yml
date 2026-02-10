@@ -26,7 +26,7 @@ jobs:
       - name: Get version from plugin.json
         id: plugin_version
         run: |
-          VERSION=$(jq -r '.version' codex-plan-reviewer/.claude-plugin/plugin.json)
+          VERSION=$(jq -r '.version' .claude-plugin/plugin.json)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=v$VERSION" >> $GITHUB_OUTPUT
 
