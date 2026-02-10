@@ -1,5 +1,5 @@
 {
-  "name": "codex-plan-reviewer",
+  "name": "bluera-claude-planner",
   "version": "0.3.1",
   "description": "Persistent Codex CLI reviewer for Claude Code plan mode",
   "author": {

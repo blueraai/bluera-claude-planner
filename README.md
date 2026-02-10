@@ -37,7 +37,7 @@ All configuration lives in `settings.json`:
 Use the slash command to quickly enable/disable:
 
 ```
-/codex-plan-reviewer:toggle
+/bluera-claude-planner:toggle
 ```
 
 Or set `SKIP_CODEX_REVIEW=1` as an environment variable to bypass for a single session.
@@ -101,7 +101,7 @@ bluera-claude-planner/
 │   └── init-session.sh      # Create/reset Codex session
 ├── skills/
 │   └── toggle/
-│       └── SKILL.md         # /codex-plan-reviewer:toggle slash command
+│       └── SKILL.md         # /bluera-claude-planner:toggle slash command
 ├── state/
 │   ├── session.json         # Session ID and metadata (gitignored)
 │   └── review-history.md    # Audit log of all reviews (gitignored)
