@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.3.3](https://github.com/blueraai/bluera-claude-planner/compare/v0.3.2...v0.3.3) (2026-02-10)
+
+
+### Bug Fixes
+
+* remove duplicate hooks declaration from plugin manifest ([4a89100](https://github.com/blueraai/bluera-claude-planner/commit/4a89100d369201f766b7d62fe0746af63b4c979c))
+
 ## [0.3.2](https://github.com/blueraai/bluera-claude-planner/compare/v0.3.0...v0.3.2) (2026-02-10)
 
 
