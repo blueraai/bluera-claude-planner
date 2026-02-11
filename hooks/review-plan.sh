@@ -33,6 +33,7 @@ CODEX_MODEL="gpt-5.3-codex"
 CODEX_REASONING_EFFORT="xhigh"
 CODEX_SESSION_ID=""
 REVIEW_TEMPLATE=""
+MAX_REVIEW_ROUNDS=10
 
 if [[ -f "$SETTINGS_FILE" ]]; then
   # Check enabled flag
@@ -42,6 +43,7 @@ if [[ -f "$SETTINGS_FILE" ]]; then
   CODEX_MODEL=$(jq -r '.model // "gpt-5.3-codex"' "$SETTINGS_FILE")
   CODEX_REASONING_EFFORT=$(jq -r '.reasoningEffort // "xhigh"' "$SETTINGS_FILE")
   REVIEW_TEMPLATE=$(jq -r '.reviewPrompt // ""' "$SETTINGS_FILE")
+  MAX_REVIEW_ROUNDS=$(jq -r '.maxReviewRounds // 10' "$SETTINGS_FILE")
 fi
 
 if [[ -f "$SESSION_FILE" ]]; then
@@ -66,6 +68,24 @@ fi
 
 PLAN_CONTENT=$(cat "$PLAN_FILE")
 [[ -z "$PLAN_CONTENT" ]] && exit 0
+
+# --- Round counter (prevent infinite loops) ---
+
+mkdir -p "$STATE_DIR"
+PLAN_HASH=$(echo "$PLAN_FILE" | md5sum 2>/dev/null | cut -d' ' -f1 || md5 -q -s "$PLAN_FILE" 2>/dev/null || echo "default")
+ROUND_FILE="${STATE_DIR}/.review-round-${PLAN_HASH}"
+
+CURRENT_ROUND=1
+if [[ -f "$ROUND_FILE" ]]; then
+  CURRENT_ROUND=$(( $(cat "$ROUND_FILE") + 1 ))
+fi
+echo "$CURRENT_ROUND" > "$ROUND_FILE"
+
+if [[ "$CURRENT_ROUND" -gt "$MAX_REVIEW_ROUNDS" ]]; then
+  # Auto-approve to prevent infinite loop
+  rm -f "$ROUND_FILE"
+  exit 0
+fi
 
 # --- Build review prompt ---
 
@@ -130,11 +150,12 @@ PLAN_BASENAME=$(basename "$PLAN_FILE")
 FIRST_LINE=$(echo "$RESPONSE" | head -1)
 
 if echo "$FIRST_LINE" | grep -qi "APPROVED"; then
+  rm -f "$ROUND_FILE"
   exit 0
 fi
 
 # Default: treat as revisions needed
-FEEDBACK="[CODEX PLAN REVIEW - REVISIONS NEEDED]
+FEEDBACK="[CODEX PLAN REVIEW - REVISIONS NEEDED] (round ${CURRENT_ROUND}/${MAX_REVIEW_ROUNDS})
 
 ${RESPONSE}
 

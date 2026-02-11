@@ -22,3 +22,4 @@ node_modules/
 # Plugin runtime state
 state/session.json
 state/review-history.md
+state/.review-round-*
