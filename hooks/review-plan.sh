@@ -27,7 +27,26 @@ SESSION_FILE="${STATE_DIR}/session.json"
 command -v jq &>/dev/null || exit 0
 command -v codex &>/dev/null || exit 0
 
-# --- Load settings ---
+# --- Read hook input (needed early for project-scoped checks) ---
+
+INPUT=$(cat 2>/dev/null || true)
+[[ -z "$INPUT" ]] && exit 0
+
+PROJECT_DIR=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+[[ -z "$PROJECT_DIR" ]] && PROJECT_DIR="$(pwd)"
+
+# --- Per-project opt-in ---
+# Only run if the project has explicitly enabled the planner.
+# Projects opt in by creating .claude/bluera-claude-planner.json with {"enabled": true}
+
+PROJECT_CONFIG="${PROJECT_DIR}/.claude/bluera-claude-planner.json"
+if [[ ! -f "$PROJECT_CONFIG" ]]; then
+  exit 0
+fi
+PROJECT_ENABLED=$(jq -r '.enabled // false' "$PROJECT_CONFIG" 2>/dev/null)
+[[ "$PROJECT_ENABLED" != "true" ]] && exit 0
+
+# --- Load settings (defaults from plugin, overrides from project) ---
 
 CODEX_MODEL="gpt-5.3-codex"
 CODEX_REASONING_EFFORT="xhigh"
@@ -35,11 +54,8 @@ CODEX_SESSION_ID=""
 REVIEW_TEMPLATE=""
 MAX_REVIEW_ROUNDS=10
 
+# Plugin defaults
 if [[ -f "$SETTINGS_FILE" ]]; then
-  # Check enabled flag
-  ENABLED=$(jq -r '.enabled // false' "$SETTINGS_FILE")
-  [[ "$ENABLED" == "false" ]] && exit 0
-
   CODEX_MODEL=$(jq -r '.model // "gpt-5.3-codex"' "$SETTINGS_FILE")
   CODEX_REASONING_EFFORT=$(jq -r '.reasoningEffort // "xhigh"' "$SETTINGS_FILE")
   REVIEW_TEMPLATE=$(jq -r '.reviewPrompt // ""' "$SETTINGS_FILE")
@@ -47,17 +63,17 @@ if [[ -f "$SETTINGS_FILE" ]]; then
   [[ "$RAW_MAX" =~ ^[0-9]+$ ]] && MAX_REVIEW_ROUNDS="$RAW_MAX"
 fi
 
+# Project overrides (model, reasoningEffort, maxReviewRounds)
+PROJ_MODEL=$(jq -r '.model // empty' "$PROJECT_CONFIG" 2>/dev/null)
+[[ -n "$PROJ_MODEL" ]] && CODEX_MODEL="$PROJ_MODEL"
+PROJ_EFFORT=$(jq -r '.reasoningEffort // empty' "$PROJECT_CONFIG" 2>/dev/null)
+[[ -n "$PROJ_EFFORT" ]] && CODEX_REASONING_EFFORT="$PROJ_EFFORT"
+PROJ_MAX=$(jq -r '.maxReviewRounds // empty' "$PROJECT_CONFIG" 2>/dev/null)
+[[ "$PROJ_MAX" =~ ^[0-9]+$ ]] && MAX_REVIEW_ROUNDS="$PROJ_MAX"
+
 if [[ -f "$SESSION_FILE" ]]; then
   CODEX_SESSION_ID=$(jq -r '.sessionId // ""' "$SESSION_FILE")
 fi
-
-# --- Read hook input ---
-
-INPUT=$(cat 2>/dev/null || true)
-[[ -z "$INPUT" ]] && exit 0
-
-PROJECT_DIR=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
-[[ -z "$PROJECT_DIR" ]] && PROJECT_DIR="$(pwd)"
 
 # --- Find the plan file ---
 
