@@ -176,9 +176,10 @@ test_skip_env_var_exits_0() {
 }
 
 test_no_cwd_in_input_exits_0() {
-  # Input without cwd field — PROJECT_DIR falls back to pwd, which won't have config
+  # Input without cwd field — PROJECT_DIR falls back to pwd
+  # Run from temp dir (no project config there) to avoid picking up repo's config
   local exit_code=0
-  echo '{"tool_name": "ExitPlanMode"}' | bash "$HOOK" > /dev/null 2>&1 || exit_code=$?
+  (cd "$TEST_DIR" && echo '{"tool_name": "ExitPlanMode"}' | bash "$HOOK" > /dev/null 2>&1) || exit_code=$?
   if [[ "$exit_code" == "0" ]]; then
     pass "input without cwd => exit 0 (no project config at pwd)"
   else

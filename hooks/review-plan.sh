@@ -11,6 +11,9 @@
 
 set -euo pipefail
 
+# Log to stderr only — stdout is reserved for hook JSON payloads
+log() { printf '[bluera-claude-planner] %s\n' "$*" >&2; }
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 STATE_DIR="${PLUGIN_DIR}/state"
@@ -86,6 +89,8 @@ fi
 PLAN_CONTENT=$(cat "$PLAN_FILE")
 [[ -z "$PLAN_CONTENT" ]] && exit 0
 
+log "Reviewing plan for $(basename "$PROJECT_DIR")..."
+
 # --- Round counter (prevent infinite loops) ---
 
 mkdir -p "$STATE_DIR"
@@ -113,6 +118,7 @@ RESPONSE=""
 
 if [[ -n "$CODEX_SESSION_ID" ]]; then
   # Persistent session: resume existing conversation
+  log "Sending to Codex (mode: session-resume, model: ${CODEX_MODEL})"
   if RESPONSE=$(codex exec resume \
     "$CODEX_SESSION_ID" \
     "$REVIEW_PROMPT" \
@@ -121,12 +127,14 @@ if [[ -n "$CODEX_SESSION_ID" ]]; then
     2>/dev/null); then
     : # success
   else
+    log "Session resume failed, falling back to stateless"
     CODEX_SESSION_ID=""  # resume failed, fall back to stateless
   fi
 fi
 
 if [[ -z "$CODEX_SESSION_ID" ]] && [[ -z "$RESPONSE" ]]; then
   # Stateless fallback: fresh codex exec
+  log "Sending to Codex (mode: stateless, model: ${CODEX_MODEL})"
   if RESPONSE=$(codex exec \
     -s read-only \
     -m "$CODEX_MODEL" \
@@ -135,11 +143,15 @@ if [[ -z "$CODEX_SESSION_ID" ]] && [[ -z "$RESPONSE" ]]; then
     "$REVIEW_PROMPT" 2>/dev/null); then
     : # success
   else
+    log "Codex call failed — allowing plan through"
     exit 0
   fi
 fi
 
-[[ -z "$RESPONSE" ]] && exit 0
+if [[ -z "$RESPONSE" ]]; then
+  log "Codex returned empty response — allowing plan through"
+  exit 0
+fi
 
 # --- Log to review history ---
 
@@ -161,6 +173,7 @@ PLAN_BASENAME=$(basename "$PLAN_FILE")
 FIRST_LINE=$(echo "$RESPONSE" | head -1)
 
 if echo "$FIRST_LINE" | grep -qi "APPROVED"; then
+  log "Codex verdict: APPROVED"
   rm -f "$ROUND_FILE"
   exit 0
 fi
@@ -171,7 +184,8 @@ CURRENT_ROUND=$(( CURRENT_ROUND + 1 ))
 echo "$CURRENT_ROUND" > "$ROUND_FILE"
 
 if [[ "$CURRENT_ROUND" -gt "$MAX_REVIEW_ROUNDS" ]]; then
-  # Auto-approve to prevent infinite loop — log for traceability
+  # Auto-approve to prevent infinite loop
+  log "Max review rounds (${MAX_REVIEW_ROUNDS}) exceeded — auto-approving"
   {
     echo ""
     echo "## Auto-approved ${TIMESTAMP}"
@@ -183,6 +197,7 @@ if [[ "$CURRENT_ROUND" -gt "$MAX_REVIEW_ROUNDS" ]]; then
 fi
 
 # Default: treat as revisions needed
+log "Codex verdict: REVISIONS_NEEDED (round ${CURRENT_ROUND}/${MAX_REVIEW_ROUNDS})"
 FEEDBACK="[CODEX PLAN REVIEW - REVISIONS NEEDED] (round ${CURRENT_ROUND}/${MAX_REVIEW_ROUNDS})
 
 ${RESPONSE}
