@@ -44,13 +44,13 @@ echo "# Test plan" > "$FAKE_PLANS_DIR/test-plan.md"
 
 # Helper: run the hook with given JSON input, capturing exit code
 # Overrides HOME so the hook finds our fake plans dir
+# Uses herestring (<<<) so env vars apply to bash, not echo
 run_hook() {
   local input="$1"
   local exit_code=0
-  # Override HOME to control plan file discovery
   HOME="$TEST_DIR" \
   SKIP_CODEX_REVIEW="" \
-    echo "$input" | bash "$HOOK" > /dev/null 2>&1 || exit_code=$?
+    bash "$HOOK" <<< "$input" > /dev/null 2>&1 || exit_code=$?
   echo "$exit_code"
 }
 
@@ -167,7 +167,7 @@ test_skip_env_var_exits_0() {
   echo '{"enabled": true}' > "$PROJECT_DIR/.claude/bluera-claude-planner.json"
   local exit_code=0
   SKIP_CODEX_REVIEW=1 \
-    echo '{"cwd":"'"$PROJECT_DIR"'"}' | bash "$HOOK" > /dev/null 2>&1 || exit_code=$?
+    bash "$HOOK" <<< '{"cwd":"'"$PROJECT_DIR"'"}' > /dev/null 2>&1 || exit_code=$?
   if [[ "$exit_code" == "0" ]]; then
     pass "SKIP_CODEX_REVIEW=1 => exit 0"
   else
@@ -179,7 +179,7 @@ test_no_cwd_in_input_exits_0() {
   # Input without cwd field — PROJECT_DIR falls back to pwd
   # Run from temp dir (no project config there) to avoid picking up repo's config
   local exit_code=0
-  (cd "$TEST_DIR" && echo '{"tool_name": "ExitPlanMode"}' | bash "$HOOK" > /dev/null 2>&1) || exit_code=$?
+  (cd "$TEST_DIR" && bash "$HOOK" <<< '{"tool_name": "ExitPlanMode"}' > /dev/null 2>&1) || exit_code=$?
   if [[ "$exit_code" == "0" ]]; then
     pass "input without cwd => exit 0 (no project config at pwd)"
   else
@@ -213,7 +213,7 @@ test_corrupted_round_file() {
   local exit_code=0
   # Hook will proceed past round check but exit 0 when codex is unavailable
   HOME="$TEST_DIR" \
-    echo "$input" | bash "$HOOK" > /dev/null 2>&1 || exit_code=$?
+    bash "$HOOK" <<< "$input" > /dev/null 2>&1 || exit_code=$?
   rm -f "$round_file"
 
   # Should not crash (exit 0 from codex not being available or graceful degradation)
@@ -230,7 +230,7 @@ test_non_numeric_max_review_rounds() {
   local input='{"cwd":"'"$PROJECT_DIR"'"}'
   local exit_code=0
   HOME="$TEST_DIR" \
-    echo "$input" | bash "$HOOK" > /dev/null 2>&1 || exit_code=$?
+    bash "$HOOK" <<< "$input" > /dev/null 2>&1 || exit_code=$?
 
   # Should not crash
   if [[ "$exit_code" == "0" ]]; then
@@ -254,7 +254,7 @@ test_project_override_model() {
   local input='{"cwd":"'"$PROJECT_DIR"'"}'
   local exit_code=0
   HOME="$TEST_DIR" \
-    echo "$input" | bash "$HOOK" > /dev/null 2>&1 || exit_code=$?
+    bash "$HOOK" <<< "$input" > /dev/null 2>&1 || exit_code=$?
 
   if [[ "$exit_code" == "0" ]]; then
     pass "project model override => does not crash"
@@ -264,6 +264,109 @@ test_project_override_model() {
 }
 
 test_project_override_model
+
+# ============================================================
+echo ""
+echo "=== Substitution Correctness (stub codex) ==="
+# ============================================================
+
+# Create stub codex that captures the prompt and returns APPROVED
+setup_stub_codex() {
+  mkdir -p "$TEST_DIR/bin"
+  cat > "$TEST_DIR/bin/codex" << 'STUB'
+#!/bin/bash
+# Capture prompt — last positional arg for stateless mode
+for arg; do last="$arg"; done
+printf '%s' "$last" > "${CAPTURE_FILE:-/dev/null}"
+echo "APPROVED"
+STUB
+  chmod +x "$TEST_DIR/bin/codex"
+}
+
+# Helper: run hook with stub codex, return exit code
+run_hook_with_stub() {
+  local input="$1"
+  local exit_code=0
+  CAPTURE_FILE="$TEST_DIR/codex-captured-prompt.txt" \
+  HOME="$TEST_DIR" \
+  PATH="$TEST_DIR/bin:$PATH" \
+    bash "$HOOK" <<< "$input" > /dev/null 2>&1 || exit_code=$?
+  echo "$exit_code"
+}
+
+setup_stub_codex
+
+test_substitution_preserves_ampersand() {
+  echo '{"enabled": true}' > "$PROJECT_DIR/.claude/bluera-claude-planner.json"
+  echo "Implement feature X & Y improvements" > "$TEST_DIR/.claude/plans/test-plan.md"
+
+  local code
+  code=$(run_hook_with_stub '{"cwd":"'"$PROJECT_DIR"'"}')
+
+  if [[ "$code" == "0" ]] \
+     && grep -q "feature X & Y" "$TEST_DIR/codex-captured-prompt.txt" 2>/dev/null \
+     && ! grep -q '{{PLAN_CONTENT}}' "$TEST_DIR/codex-captured-prompt.txt" 2>/dev/null; then
+    pass "plan with & => prompt preserved correctly"
+  else
+    fail "plan with & => prompt corrupted (exit $code)"
+  fi
+  rm -f "$TEST_DIR/codex-captured-prompt.txt"
+}
+
+test_substitution_preserves_backslash() {
+  echo '{"enabled": true}' > "$PROJECT_DIR/.claude/bluera-claude-planner.json"
+  echo 'Update path\to\file config' > "$TEST_DIR/.claude/plans/test-plan.md"
+
+  local code
+  code=$(run_hook_with_stub '{"cwd":"'"$PROJECT_DIR"'"}')
+
+  if [[ "$code" == "0" ]] \
+     && grep -q 'path\\to\\file' "$TEST_DIR/codex-captured-prompt.txt" 2>/dev/null \
+     && ! grep -q '{{PLAN_CONTENT}}' "$TEST_DIR/codex-captured-prompt.txt" 2>/dev/null; then
+    pass "plan with backslash => prompt preserved correctly"
+  else
+    fail "plan with backslash => prompt corrupted (exit $code)"
+  fi
+  rm -f "$TEST_DIR/codex-captured-prompt.txt"
+}
+
+test_substitution_preserves_dollar() {
+  echo '{"enabled": true}' > "$PROJECT_DIR/.claude/bluera-claude-planner.json"
+  printf 'Check $HOME and $PATH vars\n' > "$TEST_DIR/.claude/plans/test-plan.md"
+
+  local code
+  code=$(run_hook_with_stub '{"cwd":"'"$PROJECT_DIR"'"}')
+
+  if [[ "$code" == "0" ]] \
+     && ! grep -q '{{PLAN_CONTENT}}' "$TEST_DIR/codex-captured-prompt.txt" 2>/dev/null; then
+    pass "plan with \$ => no placeholder leak"
+  else
+    fail "plan with \$ => prompt corrupted (exit $code)"
+  fi
+  rm -f "$TEST_DIR/codex-captured-prompt.txt"
+}
+
+test_substitution_no_placeholder_in_template() {
+  # Template without {{PLAN_CONTENT}} should pass through unchanged
+  echo '{"enabled": true}' > "$PROJECT_DIR/.claude/bluera-claude-planner.json"
+  echo "Some plan content" > "$TEST_DIR/.claude/plans/test-plan.md"
+
+  local code
+  code=$(run_hook_with_stub '{"cwd":"'"$PROJECT_DIR"'"}')
+
+  # Should still exit 0 (APPROVED from stub)
+  if [[ "$code" == "0" ]]; then
+    pass "template without placeholder => exits 0"
+  else
+    fail "template without placeholder => expected exit 0, got $code"
+  fi
+  rm -f "$TEST_DIR/codex-captured-prompt.txt"
+}
+
+test_substitution_preserves_ampersand
+test_substitution_preserves_backslash
+test_substitution_preserves_dollar
+test_substitution_no_placeholder_in_template
 
 # ============================================================
 echo ""

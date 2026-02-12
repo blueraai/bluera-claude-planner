@@ -110,7 +110,18 @@ if [[ -z "$REVIEW_TEMPLATE" ]]; then
 fi
 
 # Substitute plan content into template
+# Disable patsub_replacement (Bash 5.x default) so & in plan content is literal
+PATSUB_WAS_ON=0
+if shopt -q patsub_replacement 2>/dev/null; then
+  PATSUB_WAS_ON=1
+  shopt -u patsub_replacement
+fi
+
 REVIEW_PROMPT="${REVIEW_TEMPLATE//\{\{PLAN_CONTENT\}\}/$PLAN_CONTENT}"
+
+if [[ "$PATSUB_WAS_ON" -eq 1 ]]; then
+  shopt -s patsub_replacement
+fi
 
 # --- Call Codex ---
 
@@ -175,13 +186,40 @@ FIRST_LINE=$(echo "$RESPONSE" | head -1)
 if echo "$FIRST_LINE" | grep -qi "APPROVED"; then
   log "Codex verdict: APPROVED"
   rm -f "$ROUND_FILE"
+  rmdir "${ROUND_FILE}.lock" 2>/dev/null || true
   exit 0
 fi
 
 # --- Increment round only on REVISIONS_NEEDED ---
+# Uses mkdir lock for cross-platform atomicity (no flock dependency)
 
-CURRENT_ROUND=$(( CURRENT_ROUND + 1 ))
-echo "$CURRENT_ROUND" > "$ROUND_FILE"
+LOCK_DIR="${ROUND_FILE}.lock"
+LOCK_ACQUIRED=0
+for _i in 1 2 3 4 5 6 7 8 9 10; do
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    LOCK_ACQUIRED=1
+    break
+  fi
+  sleep 0.1
+done
+
+if [[ "$LOCK_ACQUIRED" -eq 1 ]]; then
+  # Re-read inside lock for freshness
+  CURRENT_ROUND=0
+  if [[ -f "$ROUND_FILE" ]]; then
+    RAW_ROUND=$(cat "$ROUND_FILE")
+    [[ "$RAW_ROUND" =~ ^[0-9]+$ ]] && CURRENT_ROUND="$RAW_ROUND"
+  fi
+  CURRENT_ROUND=$(( CURRENT_ROUND + 1 ))
+  TEMP_ROUND=$(mktemp "${STATE_DIR}/.round-tmp.XXXXXX")
+  printf '%s\n' "$CURRENT_ROUND" > "$TEMP_ROUND"
+  mv "$TEMP_ROUND" "$ROUND_FILE"
+  rmdir "$LOCK_DIR" 2>/dev/null
+else
+  # Lock timeout — best-effort fallback
+  CURRENT_ROUND=$(( CURRENT_ROUND + 1 ))
+  printf '%s\n' "$CURRENT_ROUND" > "$ROUND_FILE"
+fi
 
 if [[ "$CURRENT_ROUND" -gt "$MAX_REVIEW_ROUNDS" ]]; then
   # Auto-approve to prevent infinite loop
@@ -193,6 +231,7 @@ if [[ "$CURRENT_ROUND" -gt "$MAX_REVIEW_ROUNDS" ]]; then
     echo "Reason: max review rounds (${MAX_REVIEW_ROUNDS}) exceeded"
   } >> "$HISTORY_FILE"
   rm -f "$ROUND_FILE"
+  rmdir "${ROUND_FILE}.lock" 2>/dev/null || true
   exit 0
 fi
 
