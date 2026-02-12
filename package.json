@@ -10,7 +10,8 @@
     "release": "commit-and-tag-version --skip.tag && git push",
     "release:patch": "commit-and-tag-version --release-as patch --skip.tag && git push",
     "release:minor": "commit-and-tag-version --release-as minor --skip.tag && git push",
-    "release:major": "commit-and-tag-version --release-as major --skip.tag && git push"
+    "release:major": "commit-and-tag-version --release-as major --skip.tag && git push",
+    "test": "bash tests/test-review-plan-hook.sh"
   },
   "devDependencies": {
     "commit-and-tag-version": "^12.5.0"

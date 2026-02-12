@@ -43,9 +43,17 @@ jobs:
           done
           echo "All scripts pass syntax check"
 
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run hook tests
+        run: bash tests/test-review-plan-hook.sh
+
   ci-success:
     runs-on: ubuntu-latest
-    needs: [shellcheck, syntax-check]
+    needs: [shellcheck, syntax-check, test]
     steps:
       - name: CI passed
         run: echo "All CI checks passed!"
