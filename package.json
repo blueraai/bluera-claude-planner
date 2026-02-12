@@ -1,6 +1,6 @@
 {
   "name": "bluera-claude-planner",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "Cross-AI plan review — uses OpenAI Codex to review Claude Code plans before implementation",
   "private": true,
   "scripts": {

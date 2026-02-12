@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.4.0](https://github.com/blueraai/bluera-claude-planner/compare/v0.3.3...v0.4.0) (2026-02-12)
+
+
+### Features
+
+* add diff request to review prompt ([66c566c](https://github.com/blueraai/bluera-claude-planner/commit/66c566c1279220e06704557aaf8753d559c4b353))
+* add maxReviewRounds to prevent infinite review loops ([0caff0b](https://github.com/blueraai/bluera-claude-planner/commit/0caff0b84acf47c714dbeae6c25af150d5d8998b))
+* add stderr console logging for review cycle visibility ([fcb1aeb](https://github.com/blueraai/bluera-claude-planner/commit/fcb1aeba42403160a413c7c9e77a318e6bdf5295))
+* improve review prompts to request full detailed feedback ([7a4fb87](https://github.com/blueraai/bluera-claude-planner/commit/7a4fb877b591ee46720c5778d9a4ab4d6a067b6f))
+
+
+### Bug Fixes
+
+* harden round counter against bad input and failure paths ([caba887](https://github.com/blueraai/bluera-claude-planner/commit/caba8876e90a8f55fa59253b3b8ea661ccb9e424))
+* make enablement per-project instead of global ([ab2dbcb](https://github.com/blueraai/bluera-claude-planner/commit/ab2dbcba164fb2ca65f4affe786ae10bbc475bab))
+
 ## [0.3.3](https://github.com/blueraai/bluera-claude-planner/compare/v0.3.2...v0.3.3) (2026-02-10)
 
 
