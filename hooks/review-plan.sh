@@ -43,7 +43,8 @@ if [[ -f "$SETTINGS_FILE" ]]; then
   CODEX_MODEL=$(jq -r '.model // "gpt-5.3-codex"' "$SETTINGS_FILE")
   CODEX_REASONING_EFFORT=$(jq -r '.reasoningEffort // "xhigh"' "$SETTINGS_FILE")
   REVIEW_TEMPLATE=$(jq -r '.reviewPrompt // ""' "$SETTINGS_FILE")
-  MAX_REVIEW_ROUNDS=$(jq -r '.maxReviewRounds // 10' "$SETTINGS_FILE")
+  RAW_MAX=$(jq -r '.maxReviewRounds // 10' "$SETTINGS_FILE")
+  [[ "$RAW_MAX" =~ ^[0-9]+$ ]] && MAX_REVIEW_ROUNDS="$RAW_MAX"
 fi
 
 if [[ -f "$SESSION_FILE" ]]; then
@@ -75,16 +76,10 @@ mkdir -p "$STATE_DIR"
 PLAN_HASH=$(echo "$PLAN_FILE" | md5sum 2>/dev/null | cut -d' ' -f1 || md5 -q -s "$PLAN_FILE" 2>/dev/null || echo "default")
 ROUND_FILE="${STATE_DIR}/.review-round-${PLAN_HASH}"
 
-CURRENT_ROUND=1
+CURRENT_ROUND=0
 if [[ -f "$ROUND_FILE" ]]; then
-  CURRENT_ROUND=$(( $(cat "$ROUND_FILE") + 1 ))
-fi
-echo "$CURRENT_ROUND" > "$ROUND_FILE"
-
-if [[ "$CURRENT_ROUND" -gt "$MAX_REVIEW_ROUNDS" ]]; then
-  # Auto-approve to prevent infinite loop
-  rm -f "$ROUND_FILE"
-  exit 0
+  RAW_ROUND=$(cat "$ROUND_FILE")
+  [[ "$RAW_ROUND" =~ ^[0-9]+$ ]] && CURRENT_ROUND="$RAW_ROUND"
 fi
 
 # --- Build review prompt ---
@@ -150,6 +145,23 @@ PLAN_BASENAME=$(basename "$PLAN_FILE")
 FIRST_LINE=$(echo "$RESPONSE" | head -1)
 
 if echo "$FIRST_LINE" | grep -qi "APPROVED"; then
+  rm -f "$ROUND_FILE"
+  exit 0
+fi
+
+# --- Increment round only on REVISIONS_NEEDED ---
+
+CURRENT_ROUND=$(( CURRENT_ROUND + 1 ))
+echo "$CURRENT_ROUND" > "$ROUND_FILE"
+
+if [[ "$CURRENT_ROUND" -gt "$MAX_REVIEW_ROUNDS" ]]; then
+  # Auto-approve to prevent infinite loop — log for traceability
+  {
+    echo ""
+    echo "## Auto-approved ${TIMESTAMP}"
+    echo "Plan: ${PLAN_BASENAME}"
+    echo "Reason: max review rounds (${MAX_REVIEW_ROUNDS}) exceeded"
+  } >> "$HISTORY_FILE"
   rm -f "$ROUND_FILE"
   exit 0
 fi
